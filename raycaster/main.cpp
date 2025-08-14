@@ -36,7 +36,7 @@ Color colorPared(int t, bool ejeY){
     return c;
 }
 
-// sprite simple de antorcha (4 frames)
+// antorcha simple (4 cuadros)
 struct Antorcha {
     RenderTexture2D rt[4];
     void init(int w=32, int h=48){
@@ -44,8 +44,8 @@ struct Antorcha {
             rt[i] = LoadRenderTexture(w,h);
             BeginTextureMode(rt[i]);
             ClearBackground(BLANK);
-            DrawRectangle(w/2-2, h-14, 4, 14, Color{80,60,30,255}); // palo
-            float k = 1.0f + 0.06f*i;                               // llama
+            DrawRectangle(w/2-2, h-14, 4, 14, Color{80,60,30,255});
+            float k = 1.0f + 0.06f*i;
             DrawCircle(w/2, h-18, 10*k, ORANGE);
             DrawCircle(w/2, h-26,  8*k, YELLOW);
             DrawCircle(w/2, h-34,  5*k, GOLD);
@@ -66,26 +66,22 @@ int main(){
     InitWindow(ANCHO, ALTO, "Ray Caster UVG");
     SetTargetFPS(60);
 
-    // audio (acepta .ogg/.mp3/.wav)
+    // audio (.ogg/.mp3/.wav)
     InitAudioDevice();
     Music music{};
     Sound sStep{}, sWin{};
     bool haveMusic=false, haveStep=false, haveWin=false;
-
     if (FileExists("assets/music.ogg"))      { music = LoadMusicStream("assets/music.ogg"); haveMusic=true; }
     else if (FileExists("assets/music.mp3")) { music = LoadMusicStream("assets/music.mp3"); haveMusic=true; }
     else if (FileExists("assets/music.wav")) { music = LoadMusicStream("assets/music.wav"); haveMusic=true; }
     if (haveMusic){ SetMusicVolume(music, 0.6f); PlayMusicStream(music); }
-
     if (FileExists("assets/step.wav")) { sStep = LoadSound("assets/step.wav"); haveStep=true; SetSoundVolume(sStep, 0.85f); }
     if (FileExists("assets/win.wav"))  { sWin  = LoadSound("assets/win.wav");  haveWin=true;  SetSoundVolume(sWin, 0.95f); }
 
-    // antorcha
     Antorcha ant; ant.init();
 
-    // mapa (9 = salida)
-    Nivel m{16,16,{}};
-    int datos[16*16] = {
+    // niveles (dos arreglos distintos)
+    std::vector<int> nivelA = {
       1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
       1,0,0,0,0,0,0,0,0,2,0,0,0,0,0,1,
       1,0,1,1,0,1,1,1,0,2,0,1,1,1,0,1,
@@ -103,7 +99,28 @@ int main(){
       1,0,0,0,0,0,0,0,0,0,0,0,0,0,9,1,
       1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1
     };
-    m.cel.assign(datos, datos+16*16);
+    std::vector<int> nivelB = {
+      1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+      1,0,0,1,0,0,0,1,0,0,0,1,0,0,0,1,
+      1,0,1,1,0,1,0,1,0,1,0,1,0,1,0,1,
+      1,0,1,0,0,1,0,0,0,1,0,0,0,1,0,1,
+      1,0,1,0,1,1,1,1,0,1,1,1,0,1,0,1,
+      1,0,0,0,0,0,0,1,0,0,0,1,0,0,0,1,
+      1,1,1,1,1,1,0,1,1,1,0,1,1,1,0,1,
+      1,0,0,0,0,1,0,0,0,1,0,0,0,1,0,1,
+      1,0,1,1,0,1,1,1,0,1,1,1,0,1,0,1,
+      1,0,1,0,0,0,0,1,0,0,0,1,0,1,0,1,
+      1,0,1,0,1,1,0,1,0,1,0,1,0,1,0,1,
+      1,0,0,0,0,0,0,1,0,0,0,1,0,0,0,1,
+      1,1,1,1,1,1,0,1,1,1,0,1,1,1,0,1,
+      1,0,0,0,0,0,0,1,0,0,0,1,0,0,0,1,
+      1,0,0,0,0,0,0,0,0,0,0,0,0,0,9,1,
+      1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1
+    };
+
+    // nivel actual
+    Nivel m{16,16,{}};
+    int nivelSel = 1; // 1 o 2
 
     // jugador
     Vector2 pos = {1.5f, 1.5f};
@@ -114,9 +131,14 @@ int main(){
     bool cursorMostrado = true;
     float stepTimer=0.0f;
 
+    // mensaje corto (ej: "Nivel 2")
+    float msgTimer = 0.0f;
+    const char* msgTxt = "";
+
     while(!WindowShouldClose()){
         float dt = GetFrameTime();
         if (haveMusic) UpdateMusicStream(music);
+        if (msgTimer > 0.0f) msgTimer -= dt;
 
         // MENU
         if (estado == MENU){
@@ -126,15 +148,38 @@ int main(){
             DrawText("RAY CASTER (UVG)", 60, 70, 50, RAYWHITE);
             DrawText("W/S o flechas: mover   Mouse o <- ->: girar", 60, 140, 24, GRAY);
             DrawText("A/D: strafe   Llega a la casilla amarilla", 60, 170, 24, GRAY);
-            DrawText("ENTER para jugar", 60, 220, 28, YELLOW);
-            ant.draw(60, 270, GetTime());
+
+            DrawText("Selecciona nivel (1 o 2)", 60, 230, 26, LIGHTGRAY);
+            DrawText((nivelSel==1) ? "Actual: Nivel 1" : "Actual: Nivel 2",
+                     60, 260, 26, (nivelSel==1)?YELLOW:ORANGE);
+
+            DrawText("ENTER para jugar", 60, 310, 28, YELLOW);
+            ant.draw(60, 360, GetTime());
             DrawFPS(ANCHO-90,10);
             EndDrawing();
+
+            // teclado
+            if (IsKeyPressed(KEY_ONE)) nivelSel = 1;
+            if (IsKeyPressed(KEY_TWO)) nivelSel = 2;
             if (IsKeyPressed(KEY_ENTER)){
-                estado = JUEGO;
+                m.cel = (nivelSel==1)? nivelA : nivelB;
                 HideCursor(); cursorMostrado = false;
+                estado = JUEGO;
                 pos = {1.5f, 1.5f};
                 dirX = 1.0f; dirY = 0.0f; plX = 0.0f; plY = FOV;
+            }
+
+            // mando (gamepad)
+            if (IsGamepadAvailable(0)){
+                if (IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_DOWN)) nivelSel = 1; // A
+                if (IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_RIGHT)) nivelSel = 2; // B
+                if (IsGamepadButtonPressed(0, GAMEPAD_BUTTON_MIDDLE_RIGHT)){ // START
+                    m.cel = (nivelSel==1)? nivelA : nivelB;
+                    HideCursor(); cursorMostrado = false;
+                    estado = JUEGO;
+                    pos = {1.5f, 1.5f};
+                    dirX = 1.0f; dirY = 0.0f; plX = 0.0f; plY = FOV;
+                }
             }
             continue;
         }
@@ -148,14 +193,16 @@ int main(){
             DrawText("ENTER: menu", 60, 160, 28, RAYWHITE);
             ant.draw(60, 210, GetTime());
             EndDrawing();
-            if (IsKeyPressed(KEY_ENTER)) estado = MENU;
+            if (IsKeyPressed(KEY_ENTER) || (IsGamepadAvailable(0) && IsGamepadButtonPressed(0, GAMEPAD_BUTTON_MIDDLE_RIGHT))){
+                estado = MENU;
+            }
             continue;
         }
 
         // JUEGO
         if (cursorMostrado){ HideCursor(); cursorMostrado = false; }
 
-        // girar (mouse)
+        // girar con mouse
         Vector2 md = GetMouseDelta();
         float ang = -md.x * SENS;
         float c = cosf(ang), s = sinf(ang);
@@ -163,7 +210,7 @@ int main(){
         dirX = odx*c - dirY*s;  dirY = odx*s + dirY*c;
         plX  = opx*c - plY*s;   plY  = opx*s + plY*c;
 
-        // girar (flechas)
+        // girar con flechas
         if (IsKeyDown(KEY_RIGHT)){
             float a=-ROT*dt, cc=cosf(a), ss=sinf(a);
             float tx=dirX*cc - dirY*ss, ty=dirX*ss + dirY*cc;
@@ -177,7 +224,19 @@ int main(){
             dirX=tx; dirY=ty; plX=px; plY=py;
         }
 
-        // mover (W/S, ↑/↓) y strafe (A/D) + pasos
+        // mando (stick derecho = girar)
+        if (IsGamepadAvailable(0)){
+            float rx = GetGamepadAxisMovement(0, GAMEPAD_AXIS_RIGHT_X);
+            if (fabsf(rx) > 0.2f){
+                float a = -rx * ROT * dt * 3.0f;
+                float cc=cosf(a), ss=sinf(a);
+                float tx=dirX*cc - dirY*ss, ty=dirX*ss + dirY*cc;
+                float px=plX*cc  - plY*ss,  py=plX*ss  + plY*cc;
+                dirX=tx; dirY=ty; plX=px; plY=py;
+            }
+        }
+
+        // mover (W/S o ↑/↓) y strafe (A/D)
         bool up   = IsKeyDown(KEY_W) || IsKeyDown(KEY_UP);
         bool down = IsKeyDown(KEY_S) || IsKeyDown(KEY_DOWN);
         bool leftStrafe  = IsKeyDown(KEY_A);
@@ -189,21 +248,45 @@ int main(){
         if (leftStrafe)  { d.x += (-dirY)*VEL*dt; d.y += ( dirX)*VEL*dt; }
         if (rightStrafe) { d.x += ( dirY)*VEL*dt; d.y += (-dirX)*VEL*dt; }
 
+        // mando (stick izq = mover/strafe)
+        if (IsGamepadAvailable(0)){
+            float lx = GetGamepadAxisMovement(0, GAMEPAD_AXIS_LEFT_X);
+            float ly = GetGamepadAxisMovement(0, GAMEPAD_AXIS_LEFT_Y);
+            if (fabsf(ly) > 0.2f){ d.x += dirX*(-ly)*VEL*dt; d.y += dirY*(-ly)*VEL*dt; }
+            if (fabsf(lx) > 0.2f){ d.x += ( dirY)*lx*VEL*dt; d.y += (-dirX)*lx*VEL*dt; }
+        }
+
+        // colision simple
         float nx = pos.x + d.x, ny = pos.y + d.y;
         bool moved=false;
-        if (!solida(m, (int)nx, (int)pos.y)) { pos.x = nx; moved=true; }
-        if (!solida(m, (int)pos.x, (int)ny)) { pos.y = ny; moved=true; }
+        // nivel actual
+        Nivel &cur = m;
+        if (!solida(cur, (int)nx, (int)pos.y)) { pos.x = nx; moved=true; }
+        if (!solida(cur, (int)pos.x, (int)ny)) { pos.y = ny; moved=true; }
 
+        // pasos
         if (moved){
             stepTimer += dt;
             if (haveStep && stepTimer > 0.25f){ PlaySound(sStep); stepTimer=0.0f; }
         } else stepTimer = 0.2f;
 
-        // ¿salida?
-        if (m.cel[id(m,(int)pos.x,(int)pos.y)] == 9){
-            if (haveWin) PlaySound(sWin);
-            estado = GANASTE;
-            continue;
+        // salida → pasar de nivel o ganar
+        if (cur.cel[id(cur,(int)pos.x,(int)pos.y)] == 9){
+            if (nivelSel == 1){
+                // pasar a nivel 2
+                nivelSel = 2;
+                m.cel = nivelB;
+                pos = {1.5f, 1.5f};
+                dirX = 1.0f; dirY = 0.0f; plX = 0.0f; plY = FOV;
+                msgTxt = "Nivel 2";
+                msgTimer = 1.5f;
+                // seguir jugando (no ir a pantalla final)
+                continue;
+            } else {
+                if (haveWin) PlaySound(sWin);
+                estado = GANASTE;
+                continue;
+            }
         }
 
         // dibujar 3D
@@ -230,8 +313,8 @@ int main(){
             while(!hit){
                 if (sX < sY){ sX+=dX; mx+=stX; ejeY=false; }
                 else        { sY+=dY; my+=stY; ejeY=true;  }
-                if (mx<0||my<0||mx>=m.w||my>=m.h){ hit=true; tipo=1; }
-                else { int v=m.cel[id(m,mx,my)]; if (v>0 && v!=9){ hit=true; tipo=v; } }
+                if (mx<0||my<0||mx>=cur.w||my>=cur.h){ hit=true; tipo=1; }
+                else { int v=cur.cel[id(cur,mx,my)]; if (v>0 && v!=9){ hit=true; tipo=v; } }
             }
 
             float dist = (!ejeY)? (sX-dX) : (sY-dY);
@@ -242,9 +325,9 @@ int main(){
 
         // minimapa
         int tam=10, ox=10, oy=10;
-        for(int y=0;y<m.h;y++){
-            for(int x=0;x<m.w;x++){
-                int v = m.cel[id(m,x,y)];
+        for(int y=0;y<cur.h;y++){
+            for(int x=0;x<cur.w;x++){
+                int v = cur.cel[id(cur,x,y)];
                 Color c = (v==0)? Color{25,25,30,255} :
                           (v==9)? Color{240,240,120,255} : Color{120,120,120,255};
                 DrawRectangle(ox+x*tam, oy+y*tam, tam, tam, c);
@@ -254,9 +337,16 @@ int main(){
         DrawLine(ox+(int)(pos.x*tam), oy+(int)(pos.y*tam),
                  ox+(int)((pos.x+dirX*0.8f)*tam), oy+(int)((pos.y+dirY*0.8f)*tam), RED);
 
-        ant.draw(ANCHO-80, 20, GetTime()); // antorcha en HUD
-
+        ant.draw(ANCHO-80, 20, GetTime());
         DrawFPS(W-90,10);
+
+        // mensaje corto (nivel 2)
+        if (msgTimer > 0.0f){
+            int fw = MeasureText(msgTxt, 48);
+            DrawRectangle(ANCHO/2 - fw/2 - 12, 20, fw+24, 60, Color{0,0,0,140});
+            DrawText(msgTxt, ANCHO/2 - fw/2, 28, 48, YELLOW);
+        }
+
         EndDrawing();
     }
 
